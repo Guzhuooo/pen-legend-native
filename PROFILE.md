@@ -84,4 +84,16 @@ adb shell send_event touch release <rawX> <rawY>
 ## 验证记录
 
 - 2026-08-28：adb 探测完成（上表全部证据来自当日真机只读探测）。
-- 待验证：canvas `getContext('2d')` / `drawImage` 图片源形式、帧率上限（里程碑 1）。
+- 2026-08-28 canvas 探测（v0.1.0 探测包真机）：
+  - `createCanvasContext` 可用；fillRect/路径绘制正常；
+  - 150 帧 × 400 矩形 + drawImage ≈ 2.7ms/帧（约 370fps）；
+  - `fillText`、`drawImage`（data URL）**静默失败不渲染** → 文字走 DOM，地面走矢量；
+  - click 事件无 `changedTouches` 坐标。
+- 2026-08-28 native jsapi 全链路：GitHub Actions 交叉编译 libjsapi_legend.so（ELF32 ARM，GLIBC_2.4 ≤ 设备 2.23）→ AMR `libs/` → 设备安装展开为 `pkg/8001799000000042/b/libs/libjsapi_legend_<id>.so` → JS `import { LegendModule } from 'legend'` 调用成功：getVersion/bench(50万次≈2-3.4ms)/genMap(56×56)/pathTo 全部返回正确。
+- 2026-08-28 玩法回归（触控注入）：方向移动、◎锁定+native 寻路、贴身自动攻击、伤害飘字、怪物受击白闪、击杀→经验条增长→金币掉落生成 全部通过；背包/角色等面板可打开。
+- 已知平台坑（真机踩实）：
+  - CSS **仅支持单 class 选择器**，`.a.b` 复合与 `.a .b` 后代一概不生效（样式静默丢失）；
+  - 嵌套容器的 `bottom/right` 定位不可靠，操作控件一律显式 `left/top` 挂页面根节点；
+  - 高负载（OOM 后）会出现 JS 定时器停摆/页面重启；注入式"按住"期间定时器也被暂停，连点可代替；
+  - miniapp 息屏/高压后 ADB 易断，`/tmp` 重启即清空。
+- 真机截图证据：`test/final-splash.png`（标题+native 状态）、`test/kill1.png`（锁定+伤害数字+受击白闪）、`test/kill2.png`（击杀后经验条增长+金币掉落物）、`test/ui2.png`（全 UI 布局）。
