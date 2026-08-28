@@ -1,0 +1,17 @@
+node_modules/
+ui/node_modules/
+ui/.falcon_/
+ui/.falcon_tmp/
+ui/*.amr
+jsapi/build/
+jsapi/toolchains/
+dist/
+releases/
+*.png
+!ui/app_icon.png
+!ui/src/assets/*.png
+知识.txt
+miniapp-creater.sh
+6a68678ed058702606960911_POSC-MiniApp-开发文档.md
+组合包打包规范.md
+X5versionInfo/

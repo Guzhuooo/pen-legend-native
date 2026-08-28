@@ -1,0 +1,49 @@
+name: Build native jsapi_legend.so
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jsapi/**'
+      - '.github/workflows/build-native.yml'
+  workflow_dispatch:
+
+jobs:
+  build-armv7:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install X5 ARMv7 glibc toolchain
+        run: |
+          mkdir -p jsapi/toolchains
+          wget -q "https://github.com/penosext/Cloudpan/releases/download/toolchains/armv7-eabihf--glibc--stable-2018.11-1.tar.bz2" \
+            -O jsapi/toolchains/tc.tar.bz2
+          tar -xjf jsapi/toolchains/tc.tar.bz2 -C jsapi/toolchains
+          rm jsapi/toolchains/tc.tar.bz2
+
+      - name: Configure and build
+        run: |
+          ls jsapi/toolchains/
+          find jsapi/toolchains -maxdepth 3 | head -20
+          COMPILER=$(find -L jsapi/toolchains -name "arm-buildroot-linux-gnueabihf-g++" | head -n 1)
+          echo "compiler: $COMPILER"
+          test -n "$COMPILER"
+          PREFIX=$(dirname "$COMPILER")/
+          cmake -S jsapi -B jsapi/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCROSS_TOOLCHAIN_PREFIX="$PREFIX"
+          cmake --build jsapi/build --parallel
+          ls -la jsapi/build/libjsapi_legend.so
+          file jsapi/build/libjsapi_legend.so
+          readelf -h jsapi/build/libjsapi_legend.so | head -12
+          readelf -d jsapi/build/libjsapi_legend.so | head -12
+          nm -D jsapi/build/libjsapi_legend.so | grep custom_init_jsapis
+
+      - name: Upload .so artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libjsapi_legend
+          path: jsapi/build/libjsapi_legend.so
+          if-no-files-found: error
+          retention-days: 30
