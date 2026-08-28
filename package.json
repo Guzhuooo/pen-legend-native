@@ -1,0 +1,10 @@
+{
+  "name": "pen-legend-workspace",
+  "private": true,
+  "type": "module",
+  "pnpm": {
+    "overrides": {
+      "typescript": "~5.8.3"
+    }
+  }
+}

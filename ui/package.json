@@ -1,0 +1,33 @@
+{
+    "name": "pen-legend",
+    "appid": "8001799000000042",
+    "version": "0.2.0",
+    "type": "module",
+    "description": "笔尖传奇：词典笔上的传奇×暗黑 ARPG",
+    "icon": "app_icon.png",
+    "quickjs": {
+        "version": "20200705",
+        "bigNum": false
+    },
+    "single-js-bundle": false,
+    "scripts": {
+        "build": "aiot-cli -p",
+        "build:dev": "aiot-cli",
+        "package": "aiot-cli -c -q -p"
+    },
+    "keywords": [
+        "game",
+        "rpg",
+        "falcon"
+    ],
+    "dependencies": {
+        "falcon-ui": "^2.0.2"
+    },
+    "devDependencies": {
+        "@vue/compiler-sfc": "^3.5.17",
+        "typescript": "~5.8.3",
+        "vue": "^3.5.17"
+    },
+    "packageManager": "pnpm@10.12.4",
+    "appName": "笔尖传奇"
+}
