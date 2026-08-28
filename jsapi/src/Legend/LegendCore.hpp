@@ -91,7 +91,11 @@ public:
     bool setDestination(int tx, int ty);
 
     // 方向摇杆：非零时清空寻路，按方向持续移动
-    void setMoveDir(float dx, float dy) { dirX_ = dx; dirY_ = dy; path_.clear(); }
+    void setMoveDir(float dx, float dy) {
+        dirX_ = dx;
+        dirY_ = dy;
+        if (dx != 0 || dy != 0) path_.clear(); // 只有真正摇方向才打断寻路
+    }
 
     // 玩家一步：寻路跟随或方向移动，带碰撞。返回移动后坐标。
     void stepPlayer(float dt);

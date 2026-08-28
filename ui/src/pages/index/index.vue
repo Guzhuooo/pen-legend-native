@@ -1,7 +1,7 @@
 <template>
   <div class="page">
-    <canvas ref="gameCanvas" class="game-canvas" style="width: 800px; height: 254px;"></canvas>
-    <div class="tap-layer" v-if="mode === 'field'" @touchstart="onTap" @click="onTap"></div>
+    <canvas ref="gameCanvas" class="game-canvas" style="width: 800px; height: 254px;" @touchstart="onTapC"></canvas>
+    <div class="tap-layer" v-if="mode === 'field'" @touchstart="onTap"></div>
 
     <!-- 实体精灵层 -->
     <div v-for="e in sprites" :key="e.key" class="ent" :class="e.cls" :style="e.style">
@@ -20,7 +20,6 @@
         <text class="hud-level">Lv.{{ level }}</text>
         <div class="xp-track"><div class="xp-fill" :style="{ width: xpBarPct + '%' }"></div></div>
         <text class="hud-gold">●{{ gold }}</text>
-        <text class="tick-probe">{{ townMsg }} T{{ tickN }}</text>
       </div>
       <div class="hud-btns">
         <div class="hud-btn" @click="openPanel('bag')"><text class="hud-btn-text">包</text></div>
@@ -453,22 +452,35 @@ export default {
       const mob = lockNearest(w, LegendModule);
       this.townMsg = mob ? ('锁' + mob[0]) : '无目标';
     },
-    onTap(e) {
-      const w = this._world;
-      if (!w || this.mode !== 'field' || this.panel) return;
-      let t = e && (e.changedTouches && e.changedTouches[0]);
-      if (!t) t = e && e.touches && e.touches[0];
-      const sx = t && (t.screenX !== undefined ? t.screenX : t.clientX);
-      const sy = t && (t.screenY !== undefined ? t.screenY : t.clientY);
-      if (sx === undefined || sy === undefined) { this.townMsg = 'tap无坐标'; return; }
-      // screen -> world（iso 逆投影）
-      const A = (sx - 400) / 20;
-      const B = (sy - 127) / 10;
-      const wx = Math.floor(w.px + (A + B) / 2);
-      const wy = Math.floor(w.py + (B - A) / 2);
-      this.tapInfo = sx + ',' + sy;
-      tapMove(w, LegendModule, wx, wy);
-      this.townMsg = '走' + wx + ',' + wy;
+    onTapC(e) { this._onTap('C', e); },
+    onTapL(e) { this._onTap('L', e); },
+    _onTap(tag, e) {
+      try {
+        this.townMsg = tag + '!';
+        let t = e && (e.changedTouches && e.changedTouches[0]);
+        if (!t) t = e && e.touches && e.touches[0];
+        const keys = e ? Object.keys(e).join('|') : 'null';
+        const sx = t ? t.screenX : -1;
+        const sy = t ? t.screenY : -1;
+        if (sx < 0 || sy < 0) { this.townMsg = tag + '无坐标'; return; }
+        const A = (sx - 400) / 20;
+        const B = (sy - 127) / 10;
+        let wx = Math.floor(this._world.px + (A + B) / 2);
+        let wy = Math.floor(this._world.py + (B - A) / 2);
+        wx = Math.max(0, Math.min(this._world.w - 1, wx));
+        wy = Math.max(0, Math.min(this._world.h - 1, wy));
+        const moved = tapMove(this._world, LegendModule, wx, wy);
+        this.townMsg = tag + '走' + wx + ',' + wy + (moved ? '' : '(挡)');
+        if (!moved) {
+          for (const [ox, oy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+            if (tapMove(this._world, LegendModule, wx + ox, wy + oy)) { this.townMsg += '→邻'; break; }
+          }
+        }
+        if (sx === undefined || sy === undefined) { this.townMsg = tag + ':无坐标 [' + keys + ']'; return; }
+
+      } catch (err) {
+        this.townMsg = tag + 'ERR:' + err;
+      }
     },
     doAttack() {
       const w = this._world;
@@ -609,6 +621,7 @@ function requireReforge(player, item, rng, oreCost, goldCost) {
   width: 800px;
   height: 254px;
   z-index: 100;
+  background-color: rgba(0, 0, 0, 0.01);
 }
 .game-canvas {
   position: absolute;
@@ -758,12 +771,7 @@ function requireReforge(player, item, rng, oreCost, goldCost) {
   color: #ffcc44;
   margin-left: 10px;
 }
-.tick-probe {
-  font-size: 10px;
-  color: #808a94;
-  margin-left: 8px;
-  width: 200px;
-}
+
 .hud-btns {
   position: absolute;
   right: 0px;

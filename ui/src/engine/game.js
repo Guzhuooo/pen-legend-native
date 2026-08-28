@@ -107,8 +107,10 @@ export function tick(world, native, run, input) {
   // 输入写入 native（方向/目标点）
   if (input.move && (input.move.dx || input.move.dy)) {
     native.setMoveDir(input.move.dx, input.move.dy);
-  } else if (input.clearMove) {
-    native.setMoveDir(0, 0);
+    world.moving = true;
+  } else if (world.moving) {
+    native.setMoveDir(0, 0); // 只在松开那一刻发一次
+    world.moving = false;
   }
 
   // 玩家自动攻击：有锁定且冷却好
