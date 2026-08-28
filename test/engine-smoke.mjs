@@ -6,7 +6,7 @@ import { makeItem, WEAPONS, QUALITIES } from '../ui/src/engine/items.js';
 import { rollAttack } from '../ui/src/engine/combat.js';
 import { rollDrop } from '../ui/src/engine/loot.js';
 import { MONSTERS } from '../ui/src/engine/monsters.js';
-import { createWorld, tick, cast, setTarget, quickPotion, isWalkable } from '../ui/src/engine/game.js';
+import { createWorld, tick, cast, lockNearest, quickPotion, tapMove, isWalkable } from '../ui/src/engine/game.js';
 import { normalizePlayer } from '../ui/src/save.js';
 
 let passed = 0;
@@ -127,42 +127,84 @@ ok('Boss 必掉装备', () => {
 
 console.log('[世界状态机]');
 function stubNative(tiles) {
-  // 简单测试替身：全地板 20x20
+  // v2 替身：全地板 20x20，怪物静态、按需被击杀
   const w = 20, h = 20;
-  const t = tiles || '.'.repeat(w * h);
+  const T = tiles || '.'.repeat(w * h);
+  const mobs = [[1, 3, 3, 3.5, 3.5, 10, 10, 0], [2, 3, 3, 12.5, 12.5, 10, 10, 0]];
+  let killed = 0;
   return {
-    genMap(seed, mapId) { return { w, h, mapId, tiles: t, spawn: [10, 10], monsters: [[3, 3, 3, 3], [12, 12, 3, 3]] }; },
-    pathTo(sx, sy, tx, ty) { return [tx, ty]; }
+    initWorld(seed, mapId) { return { w, h, mapId, tiles: T, spawn: [10, 10], monsters: [[3, 3, 3, 3], [12, 12, 3, 3]] }; },
+    setPlayerStats() {},
+    setDestination(tx, ty) { return true; },
+    setMoveDir(dx, dy) { this.dx = dx; this.dy = dy; },
+    tick(now, dt) {
+      // 模拟移动
+      if (this.dx) { this.px = (this.px || 10.5) + this.dx * 3.2 * dt; }
+      return { px: this.px || 10.5, py: this.py || 10.5, events: this.events || [] };
+    },
+    playerAttack(mult, now, range) {
+      if (killed === 0) { killed = 1; return [1, 0, 1, 1, 9, 0, 3.5, 3.5, 3, 3]; }
+      return [1, 0, 0, 1, 5, 0, 3.5, 3.5, 3, 3];
+    },
+    castAoe() { return []; },
+    getVisibleMobs() { return killed ? [] : mobs; },
+    getPos() { return [this.px || 10.5, this.py || 10.5]; },
+    pathTo() { return []; },
+    genMap() { return this.initWorld(1, 1); }
   };
 }
 ok('移动与拾取', () => {
   const p = createPlayer();
-  const w = createWorld(stubNative(), p, 1, 1);
+  const stub = stubNative();
+  const w = createWorld(stub, p, 1, 1);
   assert.ok(isWalkable(w, 10, 10));
   w.drops.push({ id: 'g1', x: 10.5, y: 10.5, gold: 7, expire: 9e15 });
-  for (let i = 0; i < 10; i++) tick(w, stubNative(), { dt: 0.05, now: i * 50, rng: createRng(i) }, { move: { dx: 0, dy: 0 } });
+  for (let i = 0; i < 10; i++) tick(w, stub, { dt: 0.05, now: i * 50, rng: createRng(i), native: stub }, { move: { dx: 0, dy: 0 } });
   assert.equal(p.gold, 50 + 7);
 });
-ok('攻击锁定与击杀掉落', () => {
+ok('方向移动（native 驱动）', () => {
   const p = createPlayer();
-  const w = createWorld(stubNative(), p, 2, 1);
-  const mob = w.monsters[0];
-  setTarget(w, mob.id);
-  // 传送玩家到怪旁边
-  p.x = mob.x + 0.8; p.y = mob.y;
-  mob.hp = 1;
-  tick(w, stubNative(), { dt: 0.05, now: 1000, rng: createRng(2) }, { move: { dx: 0, dy: 0 } });
-  assert.equal(mob.hp <= 0 || w.monsters.length === 2, true);
-  assert.ok(p.xp >= 0);
+  const stub = stubNative();
+  const w = createWorld(stub, p, 1, 1);
+  for (let i = 0; i < 20; i++) tick(w, stub, { dt: 0.05, now: i * 50, rng: createRng(i), native: stub }, { move: { dx: 1, dy: 0 } });
+  assert.ok(w.px > 12, 'x 应增长: ' + w.px);
+});
+ok('点击寻路', () => {
+  const p = createPlayer();
+  const stub = stubNative();
+  const w = createWorld(stub, p, 1, 1);
+  w.targetId = 5;
+  assert.equal(tapMove(w, stub, 5, 5), true);
+  assert.equal(w.targetId, 0);
+});
+ok('锁定最近怪', () => {
+  const p = createPlayer();
+  const stub = stubNative();
+  const w = createWorld(stub, p, 1, 1);
+  const m = lockNearest(w, stub);
+  assert.ok(m, '应锁到 mob2');
+  assert.equal(w.targetId, m[0]);
+});
+ok('击杀事件 → 经验/掉落', () => {
+  const p = createPlayer();
+  const stub = stubNative();
+  const w = createWorld(stub, p, 2, 1);
+  w.targetId = 1;
+  stub.events = [[2, 1, 3, 3, 3.5, 3.5, 0, 0]];
+  tick(w, stub, { dt: 0.05, now: 1000, rng: createRng(2), native: stub }, { move: { dx: 0, dy: 0 } });
+  assert.equal(w.targetId, 0);
+  assert.ok(p.xp > 0, '应有经验');
+  assert.ok(w.drops.length >= 1, '应有掉落');
 });
 ok('技能：未解锁被拒、蓝不够被拒', () => {
   const p = createPlayer();
-  const w = createWorld(stubNative(), p, 2, 1);
-  const r1 = cast(w, 'liehuo', { dt: 0.05, now: 0, rng: createRng(1) });
+  const stub = stubNative();
+  const w = createWorld(stub, p, 2, 1);
+  const r1 = cast(w, stub, 'liehuo', { dt: 0.05, now: 0, rng: createRng(1), native: stub });
   assert.ok(!r1.ok);
   p.skillUnlocks.gongsha = true;
   w.mp = 0;
-  const r2 = cast(w, 'gongsha', { dt: 0.05, now: 0, rng: createRng(1) });
+  const r2 = cast(w, stub, 'gongsha', { dt: 0.05, now: 0, rng: createRng(1), native: stub });
   assert.ok(!r2.ok);
 });
 ok('药水', () => {

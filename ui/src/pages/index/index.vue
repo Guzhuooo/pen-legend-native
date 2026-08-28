@@ -1,6 +1,7 @@
 <template>
   <div class="page">
     <canvas ref="gameCanvas" class="game-canvas" style="width: 800px; height: 254px;"></canvas>
+    <div class="tap-layer" v-if="mode === 'field'" @touchstart="onTap" @click="onTap"></div>
 
     <!-- 实体精灵层 -->
     <div v-for="e in sprites" :key="e.key" class="ent" :class="e.cls" :style="e.style">
@@ -153,7 +154,7 @@ import { LegendModule } from 'legend';
 import { createRng } from '../../engine/rng.js';
 import { createPlayer, grantXp, spendPoint, deriveStats, xpNeed } from '../../engine/player.js';
 import { MONSTERS, MAPS } from '../../engine/monsters.js';
-import { createWorld, tick, cast, setDestination, setTarget, quickPotion, nearestMob } from '../../engine/game.js';
+import { createWorld, tick, cast, lockNearest, quickPotion, tapMove, visibleMobs, syncStats } from '../../engine/game.js';
 import { renderTerrain } from '../../render/canvas-renderer.js';
 import { worldToScreen, cameraFor } from '../../render/iso.js';
 import { QUALITIES, POTIONS, REFORGE_CHANCES } from '../../engine/items.js';
@@ -176,7 +177,7 @@ export default {
       atkMin: 2, atkMax: 4, def: 0, acc: 85, eva: 5, atkSpeed: '1.0', xpPct: 0,
       sprites: [], dropDots: [], fxTexts: [],
       potionsHp: 0, potionsMp: 0,
-      runKills: 0, runGold: 0, tickN: 0,
+      runKills: 0, runGold: 0, tickN: 0, tapInfo: '',
       townMsg: '', smithMsg: '',
       unlockedMaps: { 0: true, 1: true },
       dirX: 0, dirY: 0,
@@ -201,7 +202,7 @@ export default {
         const t0 = Date.now();
         const ver = LegendModule.getVersion();
         const ms = LegendModule.bench(500000);
-        const m = LegendModule.genMap(1, 1);
+        const m = LegendModule.initWorld(1, 1);
         this.native = 'native ' + ver + ' · bench ' + ms.toFixed(1) + 'ms · 图' + m.w + 'x' + m.h;
       } catch (e) {
         this.native = 'native 不可用: ' + e;
@@ -273,7 +274,7 @@ export default {
         const dt = Math.min(0.2, (now - this._last) / 1000);
         this._last = now;
         this._rngState = this._rngState || createRng(now & 0xffff);
-        tick(w, LegendModule, { dt, now, rng: this._rngState }, { move: { dx: this.dirX, dy: this.dirY } });
+        tick(w, LegendModule, { dt, now, rng: this._rngState, native: LegendModule }, { move: { dx: this.dirX, dy: this.dirY }, clearMove: !this.dirX && !this.dirY });
         if (w.dead) { this.onDead(); return; }
         // 渲染节流：逻辑 20Hz，画面 10Hz
         this._renderPhase = !this._renderPhase;
@@ -287,6 +288,7 @@ export default {
     },
     renderFrame(now) {
       const w = this._world;
+      w.player.x = w.px; w.player.y = w.py;
       const cam = cameraFor(w.player);
       // 地形只在相机跨半格时重绘（战斗站立不动时 0 次 canvas 调用）
       const camKey = Math.round(w.player.x * 2) + ':' + Math.round(w.player.y * 2);
@@ -296,16 +298,19 @@ export default {
       }
       // 精灵
       const sprites = [];
-      for (const m of w.monsters) {
-        const s = worldToScreen(cam.camX, cam.camY, m.x, m.y);
+      for (const mv of visibleMobs(w, LegendModule)) {
+        // mv = [id, type, level, x, y, hp, maxHp, flash]
+        const mon = MONSTERS[mv[1]];
+        if (!mon) continue;
+        const s = worldToScreen(cam.camX, cam.camY, mv[3], mv[4]);
         if (s.x < -40 || s.x > 840) continue;
-        const mon = MONSTERS[m.type];
+        const pct = Math.max(0, Math.round(mv[5] / mv[6] * 100));
         sprites.push({
-          key: 'm' + m.id,
-          cls: 'mob' + (m.hitFlash > now ? ' mhit' : '') + (mon.boss ? ' mboss' : ''),
-          style: { left: (s.x - 14) + 'px', top: (s.y - 28) + 'px', zIndex: 1000 + Math.round(m.x + m.y) },
-          hpPct: Math.max(0, Math.round(m.hp / mon.hp * 100)),
-          hpStyle: { width: Math.max(0, Math.round(m.hp / mon.hp * 100)) + '%' }
+          key: 'm' + mv[0],
+          cls: 'mob' + (mv[7] ? ' mhit' : '') + (mon.boss ? ' mboss' : ''),
+          style: { left: (s.x - 14) + 'px', top: (s.y - 28) + 'px', zIndex: 1000 + Math.round(mv[3] + mv[4]) },
+          hpPct: pct,
+          hpStyle: { width: pct + '%' }
         });
       }
       const ps = worldToScreen(cam.camX, cam.camY, w.player.x, w.player.y);
@@ -445,30 +450,35 @@ export default {
     pickTarget() {
       const w = this._world;
       if (!w) return;
-      const mob = nearestMob(w, 8);
-      this.townMsg = mob ? ('锁' + mob.id) : '无目标';
-      if (mob) {
-        setTarget(w, mob.id);
-        const p = w.player;
-        const tx = Math.floor(mob.x);
-        const ty = Math.floor(mob.y);
-        const path = LegendModule.pathTo(Math.floor(p.x), Math.floor(p.y), tx, ty);
-        if (path && path.length >= 2) {
-          w.path = [];
-          for (let i = 0; i < path.length - 2; i += 2) w.path.push({ x: path[i] + 0.5, y: path[i + 1] + 0.5 });
-        }
-      }
+      const mob = lockNearest(w, LegendModule);
+      this.townMsg = mob ? ('锁' + mob[0]) : '无目标';
+    },
+    onTap(e) {
+      const w = this._world;
+      if (!w || this.mode !== 'field' || this.panel) return;
+      let t = e && (e.changedTouches && e.changedTouches[0]);
+      if (!t) t = e && e.touches && e.touches[0];
+      const sx = t && (t.screenX !== undefined ? t.screenX : t.clientX);
+      const sy = t && (t.screenY !== undefined ? t.screenY : t.clientY);
+      if (sx === undefined || sy === undefined) { this.townMsg = 'tap无坐标'; return; }
+      // screen -> world（iso 逆投影）
+      const A = (sx - 400) / 20;
+      const B = (sy - 127) / 10;
+      const wx = Math.floor(w.px + (A + B) / 2);
+      const wy = Math.floor(w.py + (B - A) / 2);
+      this.tapInfo = sx + ',' + sy;
+      tapMove(w, LegendModule, wx, wy);
+      this.townMsg = '走' + wx + ',' + wy;
     },
     doAttack() {
       const w = this._world;
       if (!w) return;
       if (!w.targetId) { this.pickTarget(); return; }
-      // 普攻由 tick 自动结算；点一下等于触发寻敌
     },
     doCast(key) {
       const w = this._world;
       if (!w) return;
-      const r = cast(w, key, { dt: 0.05, now: Date.now(), rng: this._rngState });
+      const r = cast(w, LegendModule, key, { dt: 0.05, now: Date.now(), rng: this._rngState });
       if (!r.ok && r.reason) this.townMsg = r.reason;
     },
     drink(kind) {
@@ -592,6 +602,14 @@ function requireReforge(player, item, rng, oreCost, goldCost) {
   height: 254px;
   background-color: #0b0d10;
 }
+.tap-layer {
+  position: absolute;
+  left: 0px;
+  top: 0px;
+  width: 800px;
+  height: 254px;
+  z-index: 100;
+}
 .game-canvas {
   position: absolute;
   left: 0px;
@@ -673,6 +691,7 @@ function requireReforge(player, item, rng, oreCost, goldCost) {
   height: 34px;
   flex-direction: row;
   background-color: rgba(10, 12, 16, 0.72);
+  z-index: 3000;
 }
 .hud-bars {
   width: 250px;
@@ -773,7 +792,7 @@ function requireReforge(player, item, rng, oreCost, goldCost) {
   top: 90px;
   width: 156px;
   height: 156px;
-  z-index: 900;
+  z-index: 3000;
 }
 .dp {
   position: absolute;
@@ -816,7 +835,7 @@ function requireReforge(player, item, rng, oreCost, goldCost) {
   width: 384px;
   height: 64px;
   flex-direction: row;
-  z-index: 900;
+  z-index: 3000;
 }
 .skill {
   width: 54px;
