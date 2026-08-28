@@ -6,7 +6,7 @@ import { makeItem, WEAPONS, QUALITIES } from '../ui/src/engine/items.js';
 import { rollAttack } from '../ui/src/engine/combat.js';
 import { rollDrop } from '../ui/src/engine/loot.js';
 import { MONSTERS } from '../ui/src/engine/monsters.js';
-import { createWorld, tick, cast, lockNearest, quickPotion, tapMove, isWalkable } from '../ui/src/engine/game.js';
+import { createWorld, tick, cast, lockNearest, quickPotion, tapWorldMove, isWalkable } from '../ui/src/engine/game.js';
 import { normalizePlayer } from '../ui/src/save.js';
 
 let passed = 0;
@@ -140,13 +140,14 @@ function stubNative(tiles) {
     tick(now, dt) {
       // 模拟移动
       if (this.dx) { this.px = (this.px || 10.5) + this.dx * 3.2 * dt; }
-      return { px: this.px || 10.5, py: this.py || 10.5, events: this.events || [] };
+      return { px: this.px || 10.5, py: this.py || 10.5, events: this.events || [], mobs: this.mobs || mobs };
     },
     playerAttack(mult, now, range) {
       if (killed === 0) { killed = 1; return [1, 0, 1, 1, 9, 0, 3.5, 3.5, 3, 3]; }
       return [1, 0, 0, 1, 5, 0, 3.5, 3.5, 3, 3];
     },
     castAoe() { return []; },
+    tapWorld(tx, ty) { return 0; },
     getVisibleMobs() { return killed ? [] : mobs; },
     getPos() { return [this.px || 10.5, this.py || 10.5]; },
     pathTo() { return []; },
@@ -169,21 +170,22 @@ ok('方向移动（native 驱动）', () => {
   for (let i = 0; i < 20; i++) tick(w, stub, { dt: 0.05, now: i * 50, rng: createRng(i), native: stub }, { move: { dx: 1, dy: 0 } });
   assert.ok(w.px > 12, 'x 应增长: ' + w.px);
 });
-ok('点击寻路', () => {
-  const p = createPlayer();
-  const stub = stubNative();
-  const w = createWorld(stub, p, 1, 1);
-  w.targetId = 5;
-  assert.equal(tapMove(w, stub, 5, 5), true);
-  assert.equal(w.targetId, 0);
-});
 ok('锁定最近怪', () => {
   const p = createPlayer();
   const stub = stubNative();
   const w = createWorld(stub, p, 1, 1);
-  const m = lockNearest(w, stub);
+  tick(w, stub, { dt: 0.05, now: 50, rng: createRng(9), native: stub }, { move: { dx: 0, dy: 0 } });
+  const m = lockNearest(w);
   assert.ok(m, '应锁到 mob2');
   assert.equal(w.targetId, m[0]);
+});
+ok('点击寻路走 tapWorld', () => {
+  const p = createPlayer();
+  const stub = stubNative();
+  const w = createWorld(stub, p, 1, 1);
+  const r = tapWorldMove(w, stub, 5, 5);
+  assert.equal(r, 0);
+  assert.equal(w.targetId, 0);
 });
 ok('击杀事件 → 经验/掉落', () => {
   const p = createPlayer();

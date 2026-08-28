@@ -165,10 +165,21 @@ void JSLegendModule::tick(JQFunctionInfo &info)
                 (double)e.kind, (double)e.mobId, (double)e.type, (double)e.level,
                 (double)e.x, (double)e.y, (double)e.dmg, e.miss ? 1.0 : 0.0});
         }
+        // 同帧快照：可见怪随 tick 一起返回，渲染不跨帧
+        std::vector<const Mob *> seen;
+        core->visibleMobs(24.0f, seen);
+        Bson::array mobList;
+        for (const Mob *m : seen) {
+            mobList.push_back(Bson::array{
+                (double)m->id, (double)m->type, (double)m->level,
+                (double)m->x, (double)m->y, (double)m->hp, (double)m->maxHp,
+                (m->flashUntil > 0) ? 1.0 : 0.0});
+        }
         Bson out = Bson::object{
             {"px", (double)core->playerX()},
             {"py", (double)core->playerY()},
-            {"events", evList}};
+            {"events", evList},
+            {"mobs", mobList}};
         info.GetReturnValue().Set(out);
     } catch (const std::exception &e) {
         info.GetReturnValue().ThrowInternalError(e.what());
@@ -238,6 +249,20 @@ void JSLegendModule::getVisibleMobs(JQFunctionInfo &info)
                 (m->flashUntil > 0) ? 1.0 : 0.0});
         }
         info.GetReturnValue().Set(Bson(list));
+    } catch (const std::exception &e) {
+        info.GetReturnValue().ThrowInternalError(e.what());
+    }
+}
+
+void JSLegendModule::tapWorld(JQFunctionInfo &info)
+{
+    try {
+        ASSERT(info.Length() >= 2);
+        JQNumber a0(info.GetContext(), info[0]);
+        JQNumber a1(info.GetContext(), info[1]);
+        LegendCore *core = getCore();
+        ASSERT(core != nullptr);
+        info.GetReturnValue().Set(core->tapWorld(a0.getInt32(), a1.getInt32()));
     } catch (const std::exception &e) {
         info.GetReturnValue().ThrowInternalError(e.what());
     }

@@ -73,6 +73,9 @@ struct AttackResult {
 
 class LegendCore {
 public:
+    static constexpr int POOL_CAP = 64;   // 怪物对象池容量（固定，不动态扩容）
+
+public:
     LegendCore();
 
     // 生成地图并初始化世界（怪物运行时状态在 native 内部）
@@ -109,8 +112,12 @@ public:
     // AOE：以玩家为圆心
     int castAoe(float mult, float radius, float now, std::vector<AttackResult> &out);
 
-    // 可见怪物（供渲染；only alive）
+    // 可见怪物（供渲染；only alive，池内顺序）
     void visibleMobs(float radius, std::vector<const Mob *> &out) const;
+
+    // 点击处理：点中怪（1.6 格内）→ 锁定并寻路接近，返回 mobId；
+    // 点空地 → 寻路走过去，返回 0；不可达返回 -1
+    int tapWorld(int tx, int ty);
 
     int targetId() const { return targetId_; }
 
@@ -119,7 +126,7 @@ public:
 
 private:
     GameMap map_;
-    std::vector<Mob> mobs_;
+    std::vector<Mob> mobs_;   // 对象池：预留 POOL_CAP，死亡槽位复用
     PlayerStats stats_;
 
     float px_ = 0, py_ = 0;

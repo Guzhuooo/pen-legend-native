@@ -97,8 +97,10 @@ function killMonster(world, run, ev) {
   addEffect(world, 'xp', ev.x, ev.y, '+' + xpGain + 'exp');
 }
 
-export function visibleMobs(world, native) {
-  try { return native.getVisibleMobs(24) || []; } catch (e) { return []; }
+export function tapWorldMove(world, native, tx, ty) {
+  const r = native.tapWorld(tx, ty);
+  world.targetId = (r > 0) ? r : 0;
+  return r;
 }
 
 // 主 tick
@@ -122,6 +124,7 @@ export function tick(world, native, run, input) {
   const res = native.tick(run.now, run.dt);
   world.px = res.px;
   world.py = res.py;
+  world.mobs = res.mobs || [];
 
   for (const ev of res.events || []) {
     const kind = ev[0];
@@ -214,8 +217,8 @@ export function cast(world, native, key, run) {
 }
 
 // 锁定最近（可点击目标走这里 + 寻路接近由 native 完成）
-export function lockNearest(world, native) {
-  const mobs = visibleMobs(world, native);
+export function lockNearest(world) {
+  const mobs = world.mobs || [];
   let best = null;
   let bestD = 64; // 8^2
   for (const m of mobs) {
@@ -226,7 +229,6 @@ export function lockNearest(world, native) {
   }
   if (!best) return null;
   world.targetId = best[0];
-  native.setDestination(Math.floor(best[3]), Math.floor(best[4]));
   return best;
 }
 

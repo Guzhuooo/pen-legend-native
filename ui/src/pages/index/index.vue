@@ -5,7 +5,9 @@
 
     <!-- 实体精灵层 -->
     <div v-for="e in sprites" :key="e.key" class="ent" :class="e.cls" :style="e.style">
+      <text class="ent-name">{{ e.label || '' }}</text>
       <div class="ent-hp" v-if="e.hpPct !== null"><div class="ent-hp-fill" :style="e.hpStyle"></div></div>
+      <div class="ent-body"></div>
     </div>
     <div v-for="d in dropDots" :key="d.key" class="drop-dot" :class="d.cls" :style="d.style"></div>
     <text v-for="fx in fxTexts" :key="fx.key" class="fx-text" :style="fx.style">{{ fx.text }}</text>
@@ -29,12 +31,7 @@
     </div>
 
     <!-- 底部操作区（仅野外）：全部显式 left/top，避免 bottom/right 嵌套定位差异 -->
-    <div class="dpad" v-if="mode === 'field'">
-      <div class="dp dpu" @touchstart="pressDir(0, -1)" @touchend="releaseDir" @touchcancel="releaseDir"><text class="dp-t">▲</text></div>
-      <div class="dp dpl" @touchstart="pressDir(-1, 0)" @touchend="releaseDir" @touchcancel="releaseDir"><text class="dp-t">◀</text></div>
-      <div class="dp dpc" @click="pickTarget"><text class="dp-t">◎</text></div>
-      <div class="dp dpr" @touchstart="pressDir(1, 0)" @touchend="releaseDir" @touchcancel="releaseDir"><text class="dp-t">▶</text></div>
-      <div class="dp dpd" @touchstart="pressDir(0, 1)" @touchend="releaseDir" @touchcancel="releaseDir"><text class="dp-t">▼</text></div>
+
     </div>
     <div class="skill-bar" v-if="mode === 'field'">
       <div class="skill atk" @click="doAttack"><text class="skill-t">击</text></div>
@@ -153,7 +150,7 @@ import { LegendModule } from 'legend';
 import { createRng } from '../../engine/rng.js';
 import { createPlayer, grantXp, spendPoint, deriveStats, xpNeed } from '../../engine/player.js';
 import { MONSTERS, MAPS } from '../../engine/monsters.js';
-import { createWorld, tick, cast, lockNearest, quickPotion, tapMove, visibleMobs, syncStats } from '../../engine/game.js';
+import { createWorld, tick, cast, lockNearest, quickPotion, tapWorldMove, syncStats } from '../../engine/game.js';
 import { renderTerrain } from '../../render/canvas-renderer.js';
 import { worldToScreen, cameraFor } from '../../render/iso.js';
 import { QUALITIES, POTIONS, REFORGE_CHANCES } from '../../engine/items.js';
@@ -179,7 +176,6 @@ export default {
       runKills: 0, runGold: 0, tickN: 0, tapInfo: '',
       townMsg: '', smithMsg: '',
       unlockedMaps: { 0: true, 1: true },
-      dirX: 0, dirY: 0,
       bagCount: 0, bagItems: [], shopItems: [], mapOptions: []
     };
   },
@@ -273,7 +269,7 @@ export default {
         const dt = Math.min(0.2, (now - this._last) / 1000);
         this._last = now;
         this._rngState = this._rngState || createRng(now & 0xffff);
-        tick(w, LegendModule, { dt, now, rng: this._rngState, native: LegendModule }, { move: { dx: this.dirX, dy: this.dirY }, clearMove: !this.dirX && !this.dirY });
+        tick(w, LegendModule, { dt, now, rng: this._rngState, native: LegendModule }, { move: { dx: 0, dy: 0 } });
         if (w.dead) { this.onDead(); return; }
         // 渲染节流：逻辑 20Hz，画面 10Hz
         this._renderPhase = !this._renderPhase;
@@ -297,8 +293,8 @@ export default {
       }
       // 精灵
       const sprites = [];
-      for (const mv of visibleMobs(w, LegendModule)) {
-        // mv = [id, type, level, x, y, hp, maxHp, flash]
+      for (const mv of w.mobs) {
+        // mv = [id, type, level, x, y, hp, maxHp, flash]（与地形同相机快照）
         const mon = MONSTERS[mv[1]];
         if (!mon) continue;
         const s = worldToScreen(cam.camX, cam.camY, mv[3], mv[4]);
@@ -306,8 +302,9 @@ export default {
         const pct = Math.max(0, Math.round(mv[5] / mv[6] * 100));
         sprites.push({
           key: 'm' + mv[0],
-          cls: 'mob' + (mv[7] ? ' mhit' : '') + (mon.boss ? ' mboss' : ''),
-          style: { left: (s.x - 14) + 'px', top: (s.y - 28) + 'px', zIndex: 1000 + Math.round(mv[3] + mv[4]) },
+          cls: 'mob m' + mv[1] + (mv[7] ? ' mhit' : '') + (mon.boss ? ' mboss' : ''),
+          label: mon.name + ' ' + mv[2],
+          style: { left: (s.x - 15) + 'px', top: (s.y - 30) + 'px', zIndex: 1000 + Math.round(mv[3] + mv[4]) },
           hpPct: pct,
           hpStyle: { width: pct + '%' }
         });
@@ -444,12 +441,10 @@ export default {
     },
 
     // ---------- 输入 ----------
-    pressDir(x, y) { this.dirX = x; this.dirY = y;  },
-    releaseDir() { this.dirX = 0; this.dirY = 0;  },
     pickTarget() {
       const w = this._world;
       if (!w) return;
-      const mob = lockNearest(w, LegendModule);
+      const mob = lockNearest(w);
       this.townMsg = mob ? ('锁' + mob[0]) : '无目标';
     },
     onTapC(e) { this._onTap('C', e); },
@@ -469,12 +464,8 @@ export default {
         let wy = Math.floor(this._world.py + (B - A) / 2);
         wx = Math.max(0, Math.min(this._world.w - 1, wx));
         wy = Math.max(0, Math.min(this._world.h - 1, wy));
-        const moved = tapMove(this._world, LegendModule, wx, wy);
-        this.townMsg = tag + '走' + wx + ',' + wy + (moved ? '' : '(挡)');
-        if (!moved) {
-          for (const [ox, oy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-            if (tapMove(this._world, LegendModule, wx + ox, wy + oy)) { this.townMsg += '→邻'; break; }
-          }
+        const r = tapWorldMove(this._world, LegendModule, wx, wy);
+        this.townMsg = (r > 0 ? '锁' + r + ' ' : '') + tag + wx + ',' + wy + (r === -1 ? '挡' : '');
         }
         if (sx === undefined || sy === undefined) { this.townMsg = tag + ':无坐标 [' + keys + ']'; return; }
 
@@ -632,6 +623,23 @@ function requireReforge(player, item, rng, oreCost, goldCost) {
 }
 
 /* 实体 */
+.ent-name {
+  position: absolute;
+  left: -14px;
+  top: -16px;
+  width: 60px;
+  font-size: 9px;
+  color: #ffe9a8;
+  text-align: center;
+}
+.ent-body {
+  position: absolute;
+  left: 2px;
+  top: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
 .ent {
   position: absolute;
   width: 28px;
@@ -644,18 +652,32 @@ function requireReforge(player, item, rng, oreCost, goldCost) {
   border-style: solid;
   border-color: #ffffff;
 }
+
+.m1 .ent-body { background-color: #f5d76e; }
+.m2 .ent-body { background-color: #c8a165; }
+.m3 .ent-body { background-color: #e8e4d8; }
+.m4 .ent-body { background-color: #7da05a; }
+.m5 .ent-body { background-color: #b0703a; }
+.m6 .ent-body { background-color: #d05050; }
+.m7 .ent-body { background-color: #a03050; }
+.m8 .ent-body { background-color: #7b2d8b; }
+.m9 .ent-body { background-color: #5070d0; }
+.m10 .ent-body { background-color: #8a8fa8; }
+.m11 .ent-body { background-color: #5a1a6b; }
+.m3 .ent-body { border-radius: 12px; }
+.m4 .ent-body { border-radius: 3px; }
+.m8 .ent-body { border-radius: 13px; width: 34px; height: 34px; left: -2px; }
+.m11 .ent-body { border-radius: 14px; width: 36px; height: 36px; left: -3px; }
 .mob {
-  background-color: #c0504d;
-  border-radius: 8px;
+  background-color: rgba(0,0,0,0.01);
 }
-.mhit {
+.mhit .ent-body {
   background-color: #ffffff;
 }
-.mboss {
-  background-color: #7b2d8b;
-  width: 40px;
-  height: 42px;
-  border-radius: 12px;
+.mboss .ent-name {
+  color: #ff9df5;
+  width: 90px;
+  left: -34px;
 }
 .ent-hp {
   position: absolute;
@@ -794,48 +816,6 @@ function requireReforge(player, item, rng, oreCost, goldCost) {
 }
 
 /* 操作区：直接挂在页面根节点，显式 left/top */
-.dpad {
-  position: absolute;
-  left: 10px;
-  top: 90px;
-  width: 156px;
-  height: 156px;
-  z-index: 3000;
-}
-.dp {
-  position: absolute;
-  width: 50px;
-  height: 50px;
-  background-color: rgba(34, 51, 68, 0.85);
-  border-radius: 10px;
-}
-.dpu {
-  left: 52px;
-  top: 0px;
-}
-.dpl {
-  left: 0px;
-  top: 52px;
-}
-.dpc {
-  left: 52px;
-  top: 52px;
-  background-color: rgba(60, 80, 100, 0.9);
-}
-.dpr {
-  left: 104px;
-  top: 52px;
-}
-.dpd {
-  left: 52px;
-  top: 104px;
-}
-.dp-t {
-  font-size: 18px;
-  color: #cfe3ff;
-  text-align: center;
-  line-height: 50px;
-}
 .skill-bar {
   position: absolute;
   left: 410px;

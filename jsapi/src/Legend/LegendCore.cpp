@@ -150,6 +150,16 @@ void LegendCore::genTemple(uint32_t seed, int pillarRooms) {
     map_.tiles[(size_t)map_.spawnY * map_.w + map_.spawnX] = FLOOR;
 }
 
+Mob *LegendCore::poolAlloc() {
+    // 对象池：死亡槽位优先复用，容量封顶 POOL_CAP
+    for (Mob &m : mobs_) if (!m.alive && m.deadUntil <= 0) return &m;
+    if ((int)mobs_.size() < POOL_CAP) {
+        mobs_.push_back(Mob());
+        return &mobs_.back();
+    }
+    return nullptr;
+}
+
 void LegendCore::spawnMonsters(uint32_t seed, int count, const std::vector<MobSpawn> &pool, int minDist) {
     setRng(seed ^ 0x5DEECE66u);
     int placed = 0, attempts = 0;
@@ -160,15 +170,16 @@ void LegendCore::spawnMonsters(uint32_t seed, int count, const std::vector<MobSp
         int dx = x - map_.spawnX, dy = y - map_.spawnY;
         if (dx * dx + dy * dy < minDist * minDist) continue;
         const MobSpawn &proto = pool[rngNext() % pool.size()];
-        Mob m;
-        m.id = nextId_++;
-        m.type = proto.type;
-        m.level = proto.level;
-        m.x = x + 0.5f;
-        m.y = y + 0.5f;
-        m.maxHp = (float)monDef(proto.type)->hp;
-        m.hp = m.maxHp;
-        mobs_.push_back(m);
+        Mob *slot = poolAlloc();
+        if (!slot) break;
+        *slot = Mob();
+        slot->id = nextId_++;
+        slot->type = proto.type;
+        slot->level = proto.level;
+        slot->x = x + 0.5f;
+        slot->y = y + 0.5f;
+        slot->maxHp = (float)monDef(proto.type)->hp;
+        slot->hp = slot->maxHp;
         ++placed;
     }
 }
@@ -221,15 +232,17 @@ const GameMap &LegendCore::initWorld(uint32_t seed, int mapId) {
                 if (d > bestD) { bestD = d; best = y * map_.w + x; }
             }
         if (best >= 0) {
-            Mob b;
-            b.id = nextId_++;
-            b.type = (mapId == 3) ? 8 : 11;
-            b.level = (mapId == 3) ? 14 : 20;
-            b.x = (float)(best % map_.w) + 0.5f;
-            b.y = (float)(best / map_.w) + 0.5f;
-            b.maxHp = (float)monDef(b.type)->hp;
-            b.hp = b.maxHp;
-            mobs_.push_back(b);
+            Mob *slot = poolAlloc();
+            if (slot) {
+                *slot = Mob();
+                slot->id = nextId_++;
+                slot->type = (mapId == 3) ? 8 : 11;
+                slot->level = (mapId == 3) ? 14 : 20;
+                slot->x = (float)(best % map_.w) + 0.5f;
+                slot->y = (float)(best / map_.w) + 0.5f;
+                slot->maxHp = (float)monDef(slot->type)->hp;
+                slot->hp = slot->maxHp;
+            }
         }
     }
 
@@ -498,6 +511,22 @@ void LegendCore::visibleMobs(float radius, std::vector<const Mob *> &out) const 
         float dx = px_ - m.x, dy = py_ - m.y;
         if (dx * dx + dy * dy <= r2) out.push_back(&m);
     }
+}
+
+int LegendCore::tapWorld(int tx, int ty) {
+    // 点中怪（1.6 格内）→ 锁定追击
+    for (Mob &m : mobs_) {
+        if (!m.alive) continue;
+        float dx = (tx + 0.5f) - m.x, dy = (ty + 0.5f) - m.y;
+        if (dx * dx + dy * dy <= 2.56f) {
+            targetId_ = m.id;
+            m.aggro = true;
+            setDestination(std::max(0, std::min(map_.w - 1, tx)), std::max(0, std::min(map_.h - 1, ty)));
+            return m.id;
+        }
+    }
+    targetId_ = 0;
+    return setDestination(tx, ty) ? 0 : -1;
 }
 
 double LegendCore::bench(int n) const {

@@ -24,6 +24,7 @@ public:
     void playerAttack(JQFunctionInfo &info);    // (mult, now, range) -> 攻击结果
     void castAoe(JQFunctionInfo &info);         // (mult, radius, now) -> [结果...]
     void getVisibleMobs(JQFunctionInfo &info);  // (radius) -> [[id,type,level,x,y,hp,maxHp,flash]...]
+    void tapWorld(JQFunctionInfo &info);        // (tx,ty) -> 0=移动 / mobId=锁定怪 / -1=不可达
     void getPos(JQFunctionInfo &info);          // -> [px,py]
     void genMap(JQFunctionInfo &info);          // 兼容旧探测页
 
