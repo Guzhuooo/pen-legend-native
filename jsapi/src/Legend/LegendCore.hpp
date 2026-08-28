@@ -152,6 +152,7 @@ private:
     void genCave(uint32_t seed);
     void genTemple(uint32_t seed, int pillars);
     void spawnMonsters(uint32_t seed, int count, const std::vector<MobSpawn> &pool, int minDist);
+    Mob *poolAlloc();
     Mob *findMob(int id);
     bool moveTo(Mob &m, float tx, float ty, float dist, float dt);
     Mob *pickAttackTarget(float range);
