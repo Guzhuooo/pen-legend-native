@@ -29,7 +29,8 @@ jobs:
           COMPILER=$(find -L jsapi/toolchains -name "arm-buildroot-linux-gnueabihf-g++" | head -n 1)
           echo "compiler: $COMPILER"
           test -n "$COMPILER"
-          PREFIX="${COMPILER%g++}"
+          COMPILER_ABS=$(readlink -f "$COMPILER")
+          PREFIX="${COMPILER_ABS%g++}"
           export CROSS_TOOLCHAIN_PREFIX="$PREFIX"
           echo "CROSS_TOOLCHAIN_PREFIX=$CROSS_TOOLCHAIN_PREFIX"
           cmake -S jsapi -B jsapi/build \
