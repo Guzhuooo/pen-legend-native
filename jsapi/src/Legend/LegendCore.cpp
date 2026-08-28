@@ -442,35 +442,39 @@ Mob *LegendCore::pickAttackTarget(float range) {
     return best;
 }
 
-AttackResult LegendCore::playerAttack(float mult, float now, float range) {
-    AttackResult out;
-    Mob *m = pickAttackTarget(range);
-    if (!m) return out;
-    const MonDef *def = monDef(m->type);
+void LegendCore::attackMob(Mob &m, float mult, float now, AttackResult &out) {
+    const MonDef *def = monDef(m.type);
     out.ok = true;
-    out.mobId = m->id;
-    out.mobX = m->x;
-    out.mobY = m->y;
-    out.mobType = m->type;
-    out.mobLevel = m->level;
+    out.mobId = m.id;
+    out.mobX = m.x;
+    out.mobY = m.y;
+    out.mobType = m.type;
+    out.mobLevel = m.level;
     int hitChance = std::max(25, std::min(97, stats_.acc - 5));
     if ((int)(rngFloat() * 100) >= hitChance) {
         out.miss = true;
-        return out;
+        return;
     }
     float raw = (stats_.atkMin + rngFloat() * (stats_.atkMax - stats_.atkMin + 1)) * mult;
     out.dmg = std::max(1, (int)raw - def->def);
     out.leech = (int)(out.dmg * stats_.leechPct / 100);
-    m->hp -= (float)out.dmg;
-    m->flashUntil = now + 0.12f;
-    m->aggro = true;
-    if (m->hp <= 0) {
-        m->alive = false;
-        m->aggro = false;
-        m->deadUntil = now + RESPAWN_DELAY;
-        if (targetId_ == m->id) targetId_ = 0;
+    m.hp -= (float)out.dmg;
+    m.flashUntil = now + 0.12f;
+    m.aggro = true;
+    if (m.hp <= 0) {
+        m.alive = false;
+        m.aggro = false;
+        m.deadUntil = now + RESPAWN_DELAY;
+        if (targetId_ == m.id) targetId_ = 0;
         out.killed = true;
     }
+}
+
+AttackResult LegendCore::playerAttack(float mult, float now, float range) {
+    AttackResult out;
+    Mob *m = pickAttackTarget(range);
+    if (!m) return out;
+    attackMob(*m, mult, now, out);
     return out;
 }
 
@@ -480,7 +484,8 @@ int LegendCore::castAoe(float mult, float radius, float now, std::vector<AttackR
         if (!m.alive) continue;
         float dx = px_ - m.x, dy = py_ - m.y;
         if (dx * dx + dy * dy > (radius + 0.3f) * (radius + 0.3f)) continue;
-        AttackResult r = playerAttack(mult, now, radius + 0.3f);
+        AttackResult r;
+        attackMob(m, mult, now, r);
         if (r.ok) { out.push_back(r); ++hits; }
     }
     return hits;
